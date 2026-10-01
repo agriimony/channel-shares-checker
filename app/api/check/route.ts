@@ -31,11 +31,15 @@ export async function GET(req: NextRequest) {
     const rows = await Promise.all(ids.map(async channelId => {
       const shares = await client.readContract({ address: CONTRACT, abi: ABI, functionName: "userBalance", args: [channelId, address] });
       if (shares === 0n) return null;
-      const [sellPrice, pendingFees] = await Promise.all([
-        client.readContract({ address: CONTRACT, abi: ABI, functionName: "getSellPriceAfterFee", args: [channelId, shares] }),
+      const [totalSupply, pendingFees] = await Promise.all([
+        client.readContract({ address: CONTRACT, abi: ABI, functionName: "channelTotalSupply", args: [channelId] }),
         client.readContract({ address: CONTRACT, abi: ABI, functionName: "pendingFees", args: [channelId, address] }),
       ]);
-      return { channelId: channelId.toString(), shares: shares.toString(), sellPriceWei: sellPrice.toString(), sellPriceEth: formatEther(sellPrice), pendingFeesWei: pendingFees.toString(), pendingFeesEth: formatEther(pendingFees) };
+      const sellableShares = totalSupply > 1n ? (shares < totalSupply - 1n ? shares : totalSupply - 1n) : 0n;
+      const sellPrice = sellableShares > 0n
+        ? await client.readContract({ address: CONTRACT, abi: ABI, functionName: "getSellPriceAfterFee", args: [channelId, sellableShares] })
+        : 0n;
+      return { channelId: channelId.toString(), shares: shares.toString(), totalSupply: totalSupply.toString(), sellableShares: sellableShares.toString(), canSell: sellableShares > 0n, sellPriceWei: sellPrice.toString(), sellPriceEth: formatEther(sellPrice), pendingFeesWei: pendingFees.toString(), pendingFeesEth: formatEther(pendingFees) };
     }));
     return NextResponse.json({ address, channels: rows.filter(Boolean) });
   } catch (error) {
